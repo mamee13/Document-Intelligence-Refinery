@@ -1,0 +1,33 @@
+# Project data (corpus)
+data/
+
+# Application storage & artifacts
+.refinery/
+*.db
+*.sqlite3
+
+# Python overrides
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Dev tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS specific
+.DS_Store
+Thumbs.db
