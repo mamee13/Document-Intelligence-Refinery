@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
 from src.agents.extractor import ExtractionRouter
 from src.agents.triage import TriageAgent
@@ -9,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def process_corpus(data_dir: Path, output_base: Path) -> None:
+def process_corpus(data_dir: Path, output_base: Path, file_filter: Optional[str] = None) -> None:
     """
     Runs the full pipeline: Triage -> Extraction -> Ledger.
     """
@@ -23,7 +24,14 @@ def process_corpus(data_dir: Path, output_base: Path) -> None:
     extracted_dir.mkdir(parents=True, exist_ok=True)
 
     # Get all PDFs in data/
-    pdf_files = list(data_dir.glob("*.pdf"))
+    if file_filter:
+        pdf_files = [data_dir / file_filter]
+        if not pdf_files[0].exists():
+            logger.error(f"File filter '{file_filter}' not found in {data_dir}")
+            return
+    else:
+        pdf_files = list(data_dir.glob("*.pdf"))
+
     logger.info(f"Found {len(pdf_files)} PDF files in {data_dir}")
 
     # Limit to 12 for Day 2 verification if needed, or just process all

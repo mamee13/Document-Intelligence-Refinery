@@ -102,9 +102,18 @@ class VisionExtractor(BaseExtractor):
 
                 # Update cost estimate (simplified)
                 # In real usage, you'd parse data["usage"] and calculate precisely
-                total_estimated_cost += 0.01  # Assume $0.01 per image/page
+                # Google Gemini Flash is very cheap: ~$0.075 per 1M tokens.
+                # Assuming ~1000 tokens per page for simplicity as a placeholder
+                # but using the multiplier from RULES
+                multiplier = self.vlm_config.get("token_cost_per_million", 0.075) / 1_000_000
+                total_estimated_cost += 1000 * multiplier
 
                 text_blocks.append(ExtractedText(text=content, page_number=i + 1, bbox=None))
+            except httpx.HTTPStatusError as e:
+                error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}"
+                text_blocks.append(
+                    ExtractedText(text=f"[Error processing page: {error_msg}]", page_number=i + 1)
+                )
             except Exception as e:
                 text_blocks.append(
                     ExtractedText(text=f"[Error processing page: {str(e)}]", page_number=i + 1)
