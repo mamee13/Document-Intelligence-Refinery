@@ -81,6 +81,8 @@ class ExtractedDocument(BaseModel):
     tables: List[ExtractedTable] = Field(default_factory=list)
     figures: List[ExtractedFigure] = Field(default_factory=list)
     strategy_used: Literal["A_FastText", "B_Layout", "C_Vision"]
+    confidence_score: float = Field(default=1.0, description="Confidence in the extraction quality")
+    cost_estimate: float = Field(default=0.0, description="Estimated USD cost for this extraction")
     extraction_time_seconds: float = 0.0
 
 
