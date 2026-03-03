@@ -1,8 +1,9 @@
-import pdfplumber
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from src.models.core import DocumentProfile, OriginType, LayoutComplexity
+import pdfplumber
+
+from src.models.core import DocumentProfile, LayoutComplexity, OriginType
 from src.utils.config import RULES
 
 
@@ -75,18 +76,10 @@ class TriageAgent:
                             multi_col_pages += 1
 
         # Calculate final metrics
-        avg_char_density = (
-            total_chars / total_area if total_area > 0 else 0
-        )
-        avg_image_ratio = (
-            total_image_area / total_area if total_area > 0 else 0
-        )
-        zero_char_ratio = (
-            zero_char_pages / pages_processed if pages_processed > 0 else 0
-        )
-        multi_col_ratio = (
-            multi_col_pages / pages_processed if pages_processed > 0 else 0
-        )
+        avg_char_density = total_chars / total_area if total_area > 0 else 0
+        avg_image_ratio = total_image_area / total_area if total_area > 0 else 0
+        zero_char_ratio = zero_char_pages / pages_processed if pages_processed > 0 else 0
+        multi_col_ratio = multi_col_pages / pages_processed if pages_processed > 0 else 0
 
         return {
             "text": text_content.lower(),
@@ -104,7 +97,7 @@ class TriageAgent:
         for domain, keywords in self.domain_hints.items():
             for kw in keywords:
                 if kw in text:
-                    return domain
+                    return str(domain)
         return None
 
     def classify_document(self, pdf_path: str | Path) -> DocumentProfile:
@@ -125,9 +118,7 @@ class TriageAgent:
             or m["avg_image_area_ratio"] >= t["scanned_image_area_ratio_min"]
         )
 
-        origin_type: OriginType = (
-            "scanned_image" if is_scanned else "native_digital"
-        )
+        origin_type: OriginType = "scanned_image" if is_scanned else "native_digital"
 
         # 2. Determine Layout Complexity
         layout_complexity: LayoutComplexity = "single_column"

@@ -1,6 +1,8 @@
-import pytest
 import shutil
 from pathlib import Path
+from typing import Generator
+
+import pytest
 
 from src.agents.triage import TriageAgent
 from src.models.core import DocumentProfile
@@ -17,8 +19,8 @@ DOCS = {
 }
 
 
-@pytest.fixture(scope="module", autouse=True)
-def cleanup_profiles():
+@pytest.fixture(scope="module", autouse=True)  # type: ignore[misc]
+def cleanup_profiles() -> Generator[None, None, None]:
     """Ensure a clean profiles directory before/after tests."""
     prof_dir = Path(".refinery/profiles")
     if prof_dir.exists():
@@ -28,7 +30,7 @@ def cleanup_profiles():
     # We leave the output files to be manually inspected
 
 
-def test_triage_class_a():
+def test_triage_class_a() -> None:
     """
     Class A (Native Digital) should be native_digital
     + multi_col or table_heavy
@@ -46,7 +48,7 @@ def test_triage_class_a():
     assert profile.domain_hint in ["financial", "annual_report"]
 
 
-def test_triage_class_b():
+def test_triage_class_b() -> None:
     """Class B (Scanned) should be flagged as scanned_image"""
     if not DOCS["B"].exists():
         pytest.skip(f"Corpus file not found: {DOCS['B']}")
@@ -59,7 +61,7 @@ def test_triage_class_b():
     assert profile.layout_complexity == "single_column"
 
 
-def test_triage_class_c():
+def test_triage_class_c() -> None:
     """Class C (Mixed/Complex) has tables and columns"""
     if not DOCS["C"].exists():
         pytest.skip(f"Corpus file not found: {DOCS['C']}")
@@ -72,7 +74,7 @@ def test_triage_class_c():
     assert profile.layout_complexity in ["table_heavy", "multi_column"]
 
 
-def test_triage_class_d():
+def test_triage_class_d() -> None:
     """Class D (Structured) has columns"""
     if not DOCS["D"].exists():
         pytest.skip(f"Corpus file not found: {DOCS['D']}")
@@ -85,7 +87,7 @@ def test_triage_class_d():
     assert profile.domain_hint in ["tax", "financial"]
 
 
-def test_profile_artifact_written():
+def test_profile_artifact_written() -> None:
     """Check that the physical file is written to .refinery/profiles"""
     if not DOCS["B"].exists():
         pytest.skip("Test requires corpus file")

@@ -1,8 +1,10 @@
-import yaml
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 
-def load_extraction_rules() -> dict:
+def load_extraction_rules() -> dict[str, Any]:
     """Load the extraction rules and thresholds from the yaml file."""
     # Assuming this is run from the project root
     rules_path = Path("rubric/extraction_rules.yaml")
@@ -12,7 +14,7 @@ def load_extraction_rules() -> dict:
         rules_path = parent / "rubric" / "extraction_rules.yaml"
 
     with open(rules_path, "r") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f)  # type: ignore[no-any-return]
 
 
 # Singleton load so it's ready for any model/agent

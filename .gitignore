@@ -3,6 +3,7 @@ data/
 
 # Application storage & artifacts
 .refinery/
+!.refinery/profiles/
 *.db
 *.sqlite3
 

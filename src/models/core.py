@@ -1,4 +1,5 @@
-from typing import List, Optional, Literal
+from typing import List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -16,12 +17,8 @@ class DocumentProfile(BaseModel):
     """
 
     doc_id: str = Field(description="Unique identifier for the document")
-    origin_type: OriginType = Field(
-        description="Detected origin of the document"
-    )
-    layout_complexity: LayoutComplexity = Field(
-        description="Detected layout complexity"
-    )
+    origin_type: OriginType = Field(description="Detected origin of the document")
+    layout_complexity: LayoutComplexity = Field(description="Detected layout complexity")
     domain_hint: Optional[str] = Field(
         default=None, description="Hints like 'financial', 'tax', etc."
     )
@@ -29,9 +26,7 @@ class DocumentProfile(BaseModel):
     estimated_extraction_cost: float = Field(
         default=0.0, description="Estimated USD cost to extract"
     )
-    confidence_score: float = Field(
-        default=1.0, description="Confidence in this profiling"
-    )
+    confidence_score: float = Field(default=1.0, description="Confidence in this profiling")
 
 
 # ---------------------------------------------------------------------------
@@ -59,9 +54,7 @@ class ExtractedText(BaseModel):
 class ExtractedTable(BaseModel):
     """A structured table extracted from the document."""
 
-    markdown_grid: str = Field(
-        description="Markdown representation of the table"
-    )
+    markdown_grid: str = Field(description="Markdown representation of the table")
     page_number: int
     bbox: Optional[BBox] = None
     caption: Optional[str] = None
@@ -139,9 +132,7 @@ class PageIndexNode(BaseModel):
     page_start: int
     page_end: int
     level: int = Field(description="Header level (e.g. 1 for H1, 2 for H2)")
-    summary: Optional[str] = Field(
-        default=None, description="Concise LLM-generated summary"
-    )
+    summary: Optional[str] = Field(default=None, description="Concise LLM-generated summary")
     key_entities: List[str] = Field(default_factory=list)
     data_types_present: List[ChunkType] = Field(default_factory=list)
     children: List["PageIndexNode"] = Field(default_factory=list)
@@ -168,9 +159,7 @@ class ProvenanceCitation(BaseModel):
     document_name: str
     page_number: int
     bbox: Optional[BBox] = None
-    content_hash: str = Field(
-        description="Hash of the LDU this fact came from"
-    )
+    content_hash: str = Field(description="Hash of the LDU this fact came from")
     excerpt: str = Field(description="Small snippet of the original text")
 
 
@@ -179,6 +168,4 @@ class ProvenanceChain(BaseModel):
 
     answer_text: str
     citations: List[ProvenanceCitation] = Field(default_factory=list)
-    is_verified: bool = Field(
-        default=False, description="Whether this has passed Audit Mode"
-    )
+    is_verified: bool = Field(default=False, description="Whether this has passed Audit Mode")
