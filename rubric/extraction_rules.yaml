@@ -1,0 +1,60 @@
+# Rules and exact thresholds derived from Day 0 analysis on corpus
+
+thresholds:
+  triage:
+    # If more than 40% are zero-char, likely a scan
+    scanned_zero_char_ratio: 0.4
+
+    # Class B first 2 pages are ~0.00012. We raise to 0.0002.
+    scanned_density_max: 0.0002
+
+    # Scans are mostly image area, but covers can be sparse
+    scanned_image_area_ratio_min: 0.4
+
+    # Class C & D are >0.003
+    native_density_min: 0.001
+
+    # Class A is exactly 0.3. We lower to 0.25 to catch it.
+    simple_multi_col_ratio_max: 0.25
+
+  escalation:
+    # If Strategy A extracts < 100 chars on a page that is mostly an image
+    # The confidence is low because it likely missed text inside the image
+    min_chars_per_page: 100
+    max_image_area_for_empty_page: 0.5
+
+vlm:
+  # Strategy C budget guard
+  max_cost_per_doc_usd: 0.50
+  model_name: "gemini-2.5-flash"
+  # Roughly $0.075 per 1M tokens
+  token_cost_per_million: 0.075
+
+domain_hints:
+  financial:
+    - "audit"
+    - "financial"
+    - "statement"
+    - "balance sheet"
+    - "profit"
+    - "loss"
+    - "revenue"
+    - "expenditure"
+  tax:
+    - "tax"
+    - "customs"
+    - "revenue"
+    - "expenditure"
+    - "vat"
+    - "fta"
+  annual_report:
+    - "annual report"
+    - "performance"
+    - "survey"
+
+chunking_rules:
+  1_table_integrity: "Table cell never split from header row. Entire table metadata must be present."
+  2_figure_captions: "Figure caption stored as metadata of parent figure chunk."
+  3_list_integrity: "Numbered list kept as single chunk unless exceeds max_tokens."
+  4_section_headers: "Section headers stored as parent metadata on all child chunks."
+  5_cross_refs: "Cross-references resolved and stored as chunk relationships."
