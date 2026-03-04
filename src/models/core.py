@@ -1,6 +1,6 @@
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # 1. DocumentProfile (Output of Triage Agent)
@@ -24,9 +24,11 @@ class DocumentProfile(BaseModel):
     )
     language: str = Field(default="en", description="Detected language")
     estimated_extraction_cost: float = Field(
-        default=0.0, description="Estimated USD cost to extract"
+        default=0.0, ge=0.0, description="Estimated USD cost to extract"
     )
-    confidence_score: float = Field(default=1.0, description="Confidence in this profiling")
+    confidence_score: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Confidence in this profiling"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +43,20 @@ class BBox(BaseModel):
     y0: float
     x1: float
     y1: float
+
+    @field_validator("x1")
+    @classmethod
+    def check_x_order(cls, v: float, info: Any) -> float:
+        if "x0" in info.data and v < info.data["x0"]:
+            raise ValueError("x1 must be greater than x0")
+        return v
+
+    @field_validator("y1")
+    @classmethod
+    def check_y_order(cls, v: float, info: Any) -> float:
+        if "y0" in info.data and v < info.data["y0"]:
+            raise ValueError("y1 must be greater than y0")
+        return v
 
 
 class ExtractedText(BaseModel):
@@ -81,9 +97,14 @@ class ExtractedDocument(BaseModel):
     tables: List[ExtractedTable] = Field(default_factory=list)
     figures: List[ExtractedFigure] = Field(default_factory=list)
     strategy_used: Literal["A_FastText", "B_Layout", "C_Vision"]
-    confidence_score: float = Field(default=1.0, description="Confidence in the extraction quality")
-    cost_estimate: float = Field(default=0.0, description="Estimated USD cost for this extraction")
+    confidence_score: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Confidence in the extraction quality"
+    )
+    cost_estimate: float = Field(
+        default=0.0, ge=0.0, description="Estimated USD cost for this extraction"
+    )
     extraction_time_seconds: float = 0.0
+    needs_human_review: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +159,13 @@ class PageIndexNode(BaseModel):
     key_entities: List[str] = Field(default_factory=list)
     data_types_present: List[ChunkType] = Field(default_factory=list)
     children: List["PageIndexNode"] = Field(default_factory=list)
+
+    @field_validator("page_end")
+    @classmethod
+    def check_page_range(cls, v: int, info: Any) -> int:
+        if "page_start" in info.data and v < info.data["page_start"]:
+            raise ValueError("page_end must be greater than or equal to page_start")
+        return v
 
 
 class PageIndex(BaseModel):

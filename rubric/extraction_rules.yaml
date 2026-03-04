@@ -17,11 +17,23 @@ thresholds:
     # Class A is exactly 0.3. We lower to 0.25 to catch it.
     simple_multi_col_ratio_max: 0.25
 
-  escalation:
-    # If Strategy A extracts < 100 chars on a page that is mostly an image
-    # The confidence is low because it likely missed text inside the image
+    # Escalation sensitivity (0.0 to 1.0)
+    min_conf_a: 0.85
+    min_conf_b: 0.8
+    min_conf_c: 0.7 # If below this, flag for human review
+
+    # Strategy B (Layout) thresholds
+    min_text_blocks_for_high_conf: 5
+
+    # Resource requirements
     min_chars_per_page: 100
     max_image_area_for_empty_page: 0.5
+
+cost_tiers:
+  base_per_page: 0.001
+  complexity_multiplier: 1.5
+  table_heavy_multiplier: 2.0
+  scanned_multiplier: 5.0
 
 vlm:
   # Strategy C budget guard
@@ -53,8 +65,17 @@ domain_hints:
     - "survey"
 
 chunking_rules:
-  1_table_integrity: "Table cell never split from header row. Entire table metadata must be present."
-  2_figure_captions: "Figure caption stored as metadata of parent figure chunk."
-  3_list_integrity: "Numbered list kept as single chunk unless exceeds max_tokens."
-  4_section_headers: "Section headers stored as parent metadata on all child chunks."
-  5_cross_refs: "Cross-references resolved and stored as chunk relationships."
+  table_integrity:
+    split_from_header: false
+    include_metadata: true
+  figure_captions:
+    store_as_metadata: true
+  list_integrity:
+    max_tokens_per_item: 512
+    keep_as_single_chunk: true
+  section_headers:
+    propagate_to_children: true
+  cross_refs:
+    resolve_relationships: true
+  max_tokens: 1024
+  overlap: 100

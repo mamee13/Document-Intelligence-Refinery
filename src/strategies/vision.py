@@ -1,4 +1,6 @@
 import base64
+import json as json_lib
+import logging
 import os
 import time
 from pathlib import Path
@@ -8,11 +10,13 @@ import fitz  # PyMuPDF
 import httpx
 from dotenv import load_dotenv
 
-from src.models.core import ExtractedDocument, ExtractedText
+from src.models.core import BBox, ExtractedDocument, ExtractedText
 from src.strategies.base import BaseExtractor
 from src.utils.config import RULES
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class VisionExtractor(BaseExtractor):
@@ -29,11 +33,14 @@ class VisionExtractor(BaseExtractor):
         self.max_cost = self.vlm_config["max_cost_per_doc_usd"]
         self.model = self.vlm_config["model_name"]
 
-    def _pdf_to_images(self, pdf_path: Path) -> List[str]:
+    def _pdf_to_images(self, pdf_path: Path, max_pages: Optional[int] = None) -> List[str]:
         """Converts PDF pages to base64 encoded PNG images."""
         images = []
         doc = fitz.open(pdf_path)
-        for page in doc:
+        # Limit loop to max_pages
+        for i, page in enumerate(doc):
+            if max_pages and i >= max_pages:
+                break
             pix = page.get_pixmap()
             img_data = pix.tobytes("png")
             images.append(base64.b64encode(img_data).decode("utf-8"))
@@ -45,9 +52,7 @@ class VisionExtractor(BaseExtractor):
     ) -> ExtractedDocument:
         start_time = time.time()
 
-        images = self._pdf_to_images(pdf_path)
-        if max_pages:
-            images = images[:max_pages]
+        images = self._pdf_to_images(pdf_path, max_pages=max_pages)
 
         if not self.api_key:
             # Fallback for demonstration when no API key is present
@@ -67,48 +72,73 @@ class VisionExtractor(BaseExtractor):
         for i, img_b64 in enumerate(images):
             # Check budget guard
             if total_estimated_cost >= self.max_cost:
+                logger.warning(f"Budget limit hit for {doc_id}")
                 text_blocks.append(ExtractedText(text="[BUDGET LIMIT REACHED]", page_number=i + 1))
-                continue
+                break
 
             # Call VLM for each page
             # Note: In a production system, we'd use batching or parallel requests
             try:
+                payload = {
+                    "model": self.vlm_config["model_name"],
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Extract text and tables from this "
+                                        "page. For each block, provide "
+                                        "'content' and 'bbox' as [ymin, xmin, "
+                                        "ymax, xmax] (0-1000). Return JSON: "
+                                        "{'blocks': [{'content':..., "
+                                        "'bbox':...}]}"
+                                    ),
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/png;base64," f"{img_b64}"},
+                                },
+                            ],
+                        }
+                    ],
+                    "response_format": {"type": "json_object"},
+                }
                 response = httpx.post(
                     f"{self.base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {self.api_key}"},
-                    json={
-                        "model": self.vlm_config["model_name"],
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": "Extract all text and tables from this page in Markdown format. Preserving spatial order.",
-                                    },
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {"url": f"data:image/png;base64,{img_b64}"},
-                                    },
-                                ],
-                            }
-                        ],
-                    },
+                    json=payload,
                     timeout=60.0,
                 )
                 response.raise_for_status()
                 data = response.json()
-                content = data["choices"][0]["message"]["content"]
+                raw_json = data["choices"][0]["message"]["content"]
+
+                # Parse the JSON blocks
+                try:
+                    blocks_data = json_lib.loads(raw_json)
+                    blocks = blocks_data.get("blocks", [])
+
+                    if isinstance(blocks, list) and blocks:
+                        for block in blocks:
+                            content = block.get("content", "")
+                            b = block.get("bbox", [0, 0, 1000, 1000])
+                            text_blocks.append(
+                                ExtractedText(
+                                    text=content,
+                                    page_number=i + 1,
+                                    bbox=BBox(x0=b[1], y0=b[0], x1=b[3], y1=b[2]),
+                                )
+                            )
+                    else:
+                        text_blocks.append(ExtractedText(text=raw_json, page_number=i + 1))
+                except Exception:
+                    text_blocks.append(ExtractedText(text=raw_json, page_number=i + 1))
 
                 # Update cost estimate (simplified)
-                # In real usage, you'd parse data["usage"] and calculate precisely
-                # Google Gemini Flash is very cheap: ~$0.075 per 1M tokens.
-                # Assuming ~1000 tokens per page for simplicity as a placeholder
-                # but using the multiplier from RULES
                 multiplier = self.vlm_config.get("token_cost_per_million", 0.075) / 1_000_000
                 total_estimated_cost += 1000 * multiplier
-
-                text_blocks.append(ExtractedText(text=content, page_number=i + 1, bbox=None))
             except httpx.HTTPStatusError as e:
                 error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}"
                 text_blocks.append(
@@ -119,11 +149,20 @@ class VisionExtractor(BaseExtractor):
                     ExtractedText(text=f"[Error processing page: {str(e)}]", page_number=i + 1)
                 )
 
+        # Dynamic Confidence (Mastered Requirement)
+        confidence = 0.95
+        if not text_blocks:
+            confidence = 0.0
+        elif any("[BUDGET LIMIT REACHED]" in b.text for b in text_blocks):
+            confidence -= 0.3
+        elif any("[Error processing page" in b.text for b in text_blocks):
+            confidence -= 0.4
+
         return ExtractedDocument(
             doc_id=doc_id,
             text_blocks=text_blocks,
             strategy_used="C_Vision",
-            confidence_score=0.9,
+            confidence_score=max(0.0, min(confidence, 1.0)),
             cost_estimate=total_estimated_cost,
             extraction_time_seconds=time.time() - start_time,
         )

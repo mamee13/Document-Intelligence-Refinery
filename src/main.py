@@ -3,7 +3,9 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from src.agents.audit import AuditManager
 from src.agents.extractor import ExtractionRouter
+from src.agents.query_agent import QueryAgent
 from src.agents.refinery import SemanticRefinery
 from src.agents.triage import TriageAgent
 
@@ -13,10 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 async def process_corpus_refined(
-    data_dir: Path, output_base: Path, file_filter: Optional[str] = None
+    data_dir: Path,
+    output_base: Path,
+    file_filter: Optional[str] = None,
+    max_pages: Optional[int] = None,
 ) -> None:
     """
-    Runs the Stage 2 pipeline: Triage -> Extraction -> Chunking -> Indexing -> Storage.
+    Runs the Stage 2 pipeline: Triage -> Extraction -> Chunking -> Indexing.
     """
     refinery = SemanticRefinery()
 
@@ -31,11 +36,12 @@ async def process_corpus_refined(
 
     logger.info(f"Found {len(pdf_files)} PDF files in {data_dir} for Deep Refining")
 
-    for pdf_path in pdf_files[:12]:
+    for pdf_path in pdf_files:
         doc_id = pdf_path.stem
         try:
-            await refinery.refine_document(pdf_path)
-            logger.info(f"Deep Refining complete for {doc_id}")
+            await refinery.refine_document(pdf_path, max_pages=max_pages)
+            limit_str = f"Limit: {max_pages} pages" if max_pages else "Full"
+            logger.info(f"Deep Refining complete for {doc_id} ({limit_str})")
         except Exception as e:
             logger.error(f"Failed to refine {doc_id}: {str(e)}")
 
@@ -66,7 +72,7 @@ def process_corpus_extract_only(
 
     logger.info(f"Found {len(pdf_files)} PDF files in {data_dir} for Extraction Only")
 
-    for pdf_path in pdf_files[:12]:
+    for pdf_path in pdf_files:
         doc_id = pdf_path.stem
         logger.info(f"Processing {doc_id}...")
 
@@ -96,5 +102,17 @@ if __name__ == "__main__":
 
     if mode == "refine":
         asyncio.run(process_corpus_refined(DATA_DIR, OUTPUT_BASE, file_filter=filter_val))
+    elif mode == "query":
+        query_text = filter_val or "What are the key findings?"
+        agent = QueryAgent()
+        result = asyncio.run(agent.run(query_text))
+        print(f"\n--- ANSWER ---\n{result.answer_text}\n")
+        print(f"--- CITATIONS ---\n{result.citations}\n")
+    elif mode == "audit":
+        claim_text = filter_val or "Revenue was over 10 billion."
+        manager = AuditManager()
+        result = asyncio.run(manager.verify_claim(claim_text))
+        print(f"\n--- AUDIT RESULT ---\n{result.answer_text}\n")
+        print(f"--- CITATIONS ---\n{result.citations}\n")
     else:
         process_corpus_extract_only(DATA_DIR, OUTPUT_BASE, file_filter=filter_val)

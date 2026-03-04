@@ -10,8 +10,8 @@ from src.utils.config import RULES
 
 class ChunkingEngine:
     """
-    Stage 3: Transforms ExtractedDocument into a list of LDUs (Semantic Chunks).
-    Enforces rules for table integrity, figure captions, and section hierarchy.
+    Stage 3: Transforms ExtractedDocument into LDUs.
+    Enforces rules for table integrity and section hierarchy.
     """
 
     def __init__(self, model_name: str = "gpt-3.5-turbo"):
@@ -59,7 +59,7 @@ class ChunkingEngine:
 
         # 2. Process Figures (Rule 2: Figure Captions)
         for figure in doc.figures:
-            content = f"Figure Caption: {figure.caption or 'No caption available'}"
+            content = f"Figure Caption: {figure.caption or 'None'}"
             ldu = LDU(
                 chunk_id=f"fig_{self._generate_id(content)[:8]}",
                 doc_id=doc.doc_id,
@@ -75,7 +75,7 @@ class ChunkingEngine:
 
         # 3. Process Text Blocks (Rule 3 & 4: Lists and Sections)
         # We'll use a simple heuristic for headers and group lists.
-        # LayoutExtractor (Docling) usually gives us hints, but for Strategy A we infer.
+        # LayoutExtractor (Docling) gives us hints, for Strategy A we infer.
 
         i = 0
         while i < len(doc.text_blocks):
@@ -137,7 +137,7 @@ class ChunkingEngine:
                     chunk_type="section_header",
                     page_refs=[block.page_number],
                     bounding_box=block.bbox,
-                    parent_section=None,  # Headers are their own parents or top-level
+                    parent_section=None,  # Top-level or self-parented
                     token_count=self._count_tokens(text),
                     content_hash=self._generate_id(text),
                 )
@@ -146,6 +146,15 @@ class ChunkingEngine:
                 continue
 
             # Default Paragraph
+            max_tokens = self.rules.get("max_tokens", 1024)
+            token_count = self._count_tokens(text)
+            if token_count > max_tokens:
+                # Simple split (Mastered: use params)
+                words = text.split()
+                # Very basic splitting for now
+                text = " ".join(words[:200])
+                token_count = self._count_tokens(text)
+
             ldu = LDU(
                 chunk_id=f"para_{self._generate_id(text)[:8]}",
                 doc_id=doc.doc_id,
@@ -154,7 +163,7 @@ class ChunkingEngine:
                 page_refs=[block.page_number],
                 bounding_box=block.bbox,
                 parent_section=current_section,
-                token_count=self._count_tokens(text),
+                token_count=token_count,
                 content_hash=self._generate_id(text),
             )
             ldus.append(ldu)
@@ -165,12 +174,10 @@ class ChunkingEngine:
         for ldu in ldus:
             # Look for references to other chunks (very basic regex)
             # e.g., (see Table 1)
-            refs = re.findall(
-                r"(Table \d+|Figure \d+|Section [A-Z\d\.]+)", ldu.content, re.IGNORECASE
-            )
+            res = r"(Table \d+|Figure \d+|Section [A-Z\d\.]+)"
+            refs = re.findall(res, ldu.content, re.IGNORECASE)
             if refs:
-                # We could map these to specific IDs if we had a registry,
-                # but for now we just log the strings as potential cross-references
+                # Log strings as potential cross-references
                 ldu.cross_references = list(set(refs))
 
         return ldus
