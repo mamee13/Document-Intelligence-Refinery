@@ -44,6 +44,7 @@ class VectorStore:
                     "page_refs": ldu.page_refs,
                     "parent_section": ldu.parent_section,
                     "content_hash": ldu.content_hash,
+                    "bbox": ldu.bounding_box.model_dump() if ldu.bounding_box else None,
                 },
             )
             docs.append(doc)
