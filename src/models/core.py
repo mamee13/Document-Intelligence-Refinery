@@ -100,7 +100,7 @@ class ExtractedDocument(BaseModel):
     confidence_score: float = Field(
         default=1.0, ge=0.0, le=1.0, description="Extraction confidence"
     )
-    cost_estimate: float = Field(default=0.0, ge=0.0, description="USD cost estimate")
+    cost_estimate: float = Field(default=0.0, ge=0.0, description="USD cost")
     extraction_time_seconds: float = 0.0
     needs_human_review: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -197,4 +197,10 @@ class ProvenanceChain(BaseModel):
 
     answer_text: str
     citations: List[ProvenanceCitation] = Field(default_factory=list)
+    chain_hash: Optional[str] = Field(
+        default=None, description="Aggregated hash of all citation hashes"
+    )
+    chain_bbox: Optional[BBox] = Field(
+        default=None, description="Bounding box encompassing citations"
+    )
     is_verified: bool = Field(default=False, description="Passed Audit Mode")
