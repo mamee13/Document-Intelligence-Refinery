@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from src.agents.refinery import SemanticRefinery
+from src.data.fact_table import FactTableExtractor
 from src.models.core import (
     DocumentProfile,
     ExtractedDocument,
@@ -44,6 +45,19 @@ async def test_full_refinery_flow(
     # 1. Mock the API calls (Vision and Indexer)
     async def mock_summarize(self_idx: Any, title: str, content: str) -> str:
         return f"Summary for {title}"
+
+    async def mock_extract_facts(self_idx: Any, doc_id: str, table: Any) -> list[dict[str, Any]]:
+        return [
+            {
+                "doc_id": doc_id,
+                "page_number": table.page_number,
+                "fact_key": "Extracted Table",
+                "fact_value": "Mock Value",
+                "unit": "Mock Unit",
+                "confidence": 1.0,
+                "source_chunk_hash": "hash",
+            }
+        ]
 
     def mock_extract_vision(
         self_extractor: Any, pdf_path: Path, doc_id: str, max_pages: int | None = None
@@ -85,6 +99,7 @@ async def test_full_refinery_flow(
     monkeypatch.setattr(VisionExtractor, "extract", mock_extract_vision)
     monkeypatch.setattr(TriageAgent, "classify_document", mock_classify)
     monkeypatch.setattr(refinery.vector_store, "embeddings", MockEmbeddings())
+    monkeypatch.setattr(FactTableExtractor, "extract_facts_from_table", mock_extract_facts)
 
     # 2. Run the refinery
     test_pdf = Path("data/simple_test.pdf")
@@ -110,6 +125,13 @@ async def test_full_refinery_flow(
     assert os.path.exists(refinery.vector_store.persist_dir)
     results = refinery.vector_store.search("test", k=1)
     assert len(results) > 0
+
+    # Check PageIndex navigation
+    nav_results = await refinery.indexer.navigate(
+        "simple_test", "Introduction", k=1, vector_store=refinery.vector_store
+    )
+    assert len(nav_results) > 0
+    assert nav_results[0].title == "Introduction"
 
     # Check Fact Table
     facts = refinery.fact_table.query_facts(doc_id="simple_test")

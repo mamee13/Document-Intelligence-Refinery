@@ -7,7 +7,7 @@ from src.agents.chunker import ChunkingEngine
 from src.agents.extractor import ExtractionRouter
 from src.agents.indexer import PageIndexManager
 from src.agents.triage import TriageAgent
-from src.data.fact_table import FactTable
+from src.data.fact_table import FactTable, FactTableExtractor
 from src.data.vector_store import VectorStore
 from src.models.core import LDU, ExtractedDocument, PageIndex
 
@@ -27,6 +27,7 @@ class SemanticRefinery:
         self.indexer = PageIndexManager()
         self.vector_store = VectorStore()
         self.fact_table = FactTable()
+        self.fact_extractor = FactTableExtractor()
 
     async def refine_document(self, pdf_path: Path, max_pages: Optional[int] = None) -> PageIndex:
         """
@@ -57,23 +58,13 @@ class SemanticRefinery:
         self.vector_store.ingest_ldus(ldus)
         logger.info("LDUs ingested into Vector Store")
 
-        # 6. Store - Fact Table (if applicable)
-        # For now, we manually extract facts from tables in a simplified way
+        # 6. Store - Fact Table
         for table in extraction.tables:
-            # In a more advanced version, we'd use an LLM or pattern matcher
-            # to extract keys/values from the markdown_grid
-            fact_data = {
-                "doc_id": doc_id,
-                "page_number": table.page_number,
-                "fact_key": "Extracted Table",
-                "fact_value": table.markdown_grid[:100] + "...",  # Placeholder
-                "unit": "Markdown",
-                "confidence": extraction.confidence_score,
-                "source_chunk_hash": hashlib.sha256(table.markdown_grid.encode()).hexdigest(),
-            }
-            self.fact_table.insert_fact(fact_data)
+            facts = await self.fact_extractor.extract_facts_from_table(doc_id, table)
+            for fact in facts:
+                self.fact_table.insert_fact(fact)
 
         if extraction.tables:
-            logger.info(f"Stored {len(extraction.tables)} tables in Fact Table")
+            logger.info(f"Structured fact extraction attempted for {len(extraction.tables)} tables")
 
         return index

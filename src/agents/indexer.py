@@ -1,7 +1,8 @@
 import json
+import logging
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -9,7 +10,11 @@ from dotenv import load_dotenv
 from src.models.core import LDU, PageIndex, PageIndexNode
 from src.utils.config import RULES
 
+if TYPE_CHECKING:
+    from src.data.vector_store import VectorStore
+
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class PageIndexManager:
@@ -122,3 +127,49 @@ class PageIndexManager:
             f.write(index.model_dump_json(indent=2))
 
         return index
+
+    async def navigate(
+        self,
+        doc_id: str,
+        query: str,
+        k: int = 3,
+        vector_store: Optional["VectorStore"] = None,
+    ) -> List[PageIndexNode]:
+        """
+        Traverses the index using semantic similarity against section summaries.
+        Returns top-k most relevant sections.
+        """
+        # Load the index
+        index_path = Path(".refinery/pageindex") / f"{doc_id}.json"
+        if not index_path.exists():
+            return []
+
+        with open(index_path, "r") as f:
+            data = json.load(f)
+            index = PageIndex.model_validate(data)
+
+        # Use VectorStore's embedding logic to find relevant sections
+        from src.data.vector_store import VectorStore
+
+        vs = vector_store or VectorStore()
+        # Collect all nodes
+        all_nodes = index.root_nodes  # Simple flat search for now
+
+        # We'll use a simple approach: embed the query and compare with
+        # (embedded) summaries. For now, since we haven't stored node embeddings,
+        # we'll use a simpler semantic search over the summary text.
+        # Efficient way: The summary is already stored in our vector store as LDUs,
+        # but the PageIndexNode summary is a higher-level abstraction.
+
+        # Let's use the VectorStore to find the best LDUs, then resolve them to nodes.
+        results = vs.search(query, k=k * 2)
+        relevant_node_titles = set()
+        for r in results:
+            if r.metadata.get("chunk_type") == "section_header":
+                relevant_node_titles.add(r.page_content)  # Header content is the title
+            elif r.metadata.get("parent_section"):
+                relevant_node_titles.add(r.metadata.get("parent_section"))
+
+        # Filter and sort nodes by relevance
+        matched_nodes = [node for node in all_nodes if node.title in relevant_node_titles]
+        return matched_nodes[:k]
