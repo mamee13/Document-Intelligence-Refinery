@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import sqlite3
@@ -35,8 +36,8 @@ class QueryState(TypedDict):
 @tool  # type: ignore[misc]
 async def pageindex_navigate(query: str, doc_id: str) -> str:
     """
-    Navigates the hierarchical PageIndex tree to find relevant sections for a query.
-    Useful for high-level discovery and locating specific chapters or sections.
+    Navigates the hierarchical PageIndex tree to find relevant sections.
+    Useful for high-level discovery and locating specific chapters.
     """
     manager = PageIndexManager()
     nodes = await manager.navigate(doc_id, query)
@@ -57,7 +58,7 @@ async def pageindex_navigate(query: str, doc_id: str) -> str:
 def semantic_search(query: str, k: int = 5) -> str:
     """
     Performs a semantic vector search across document chunks (LDUs).
-    Best for finding specific details, paragraphs, or context-heavy information.
+    Best for finding specific details, paragraphs, or context-heavy info.
     """
     vs = VectorStore()
     docs = vs.search(query, k=k)
@@ -81,9 +82,10 @@ def semantic_search(query: str, k: int = 5) -> str:
 def structured_query(sql_query: str) -> str:
     """
     Executes a SQL query against the FactTable (SQLite).
-    Best for numerical analysis, fiscal data comparison, and structured table data queries.
+    Best for numerical analysis and structured table data queries.
     Only use valid SQLite syntax against the 'facts' table.
-    Schema: facts(doc_id, page_number, fact_key, fact_value, unit, confidence, source_chunk_hash)
+    Schema: facts(doc_id, page_number, fact_key, fact_value, unit,
+    confidence, source_chunk_hash)
     """
     try:
         conn = sqlite3.connect(".refinery/refinery_facts.db")
@@ -128,10 +130,7 @@ class QueryAgent:
         builder.add_node("tools", ToolNode(self.tools))
 
         builder.set_entry_point("agent")
-        builder.add_conditional_edges(
-            "agent",
-            self._should_continue,
-        )
+        builder.add_conditional_edges("agent", self._should_continue)
         builder.add_edge("tools", "agent")
 
         self.graph = builder.compile()
@@ -151,9 +150,9 @@ class QueryAgent:
         system_prompt = (
             "You are a professional Document Intelligence Agent. Your goal is to "
             "provide accurate answers based ONLY on the provided document data.\n"
-            "For every fact you state, you MUST provide a citation in the format: "
+            "For every fact you state, MUST provide a citation in the format: "
             "[Source: DOC_ID, Page: PAGE, Hash: HASH].\n"
-            "If spatial data (BBox) is available in the tool output, keep track of it.\n"
+            "If spatial data (BBox) is available, keep track of it.\n"
             "Be concise and professional."
         )
         inputs = {
@@ -169,12 +168,11 @@ class QueryAgent:
         # Simple citation extraction regex-based
         import re
 
-        citation_matches = re.finditer(r"\[Source: (.*?), Page: (.*?), Hash: (.*?)\]", answer)
+        pattern = r"\[Source: (.*?), Page: (.*?), Hash: (.*?)\]"
+        citation_matches = re.finditer(pattern, answer)
         citations = []
         for match in citation_matches:
-            # In a real implementation, we would look up the full LDU info from a cache
-            # or from the tool outputs to fill in the BBox and excerpt.
-            # For now, we'll populate what we can.
+            # In a real implementation, look up full LDU info from cache
             citations.append(
                 ProvenanceCitation(
                     document_name=match.group(1),
@@ -188,4 +186,17 @@ class QueryAgent:
                 )
             )
 
-        return ProvenanceChain(answer_text=answer, citations=citations, is_verified=False)
+        # Aggregate chain-level provenance summaries (Mastered Requirement)
+        chain_hash = None
+        if citations:
+            hashes = [c.content_hash for c in citations if c.content_hash]
+            hash_input = "".join(sorted(hashes))
+            if hash_input:
+                chain_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+
+        return ProvenanceChain(
+            answer_text=answer,
+            citations=citations,
+            chain_hash=chain_hash,
+            is_verified=False,
+        )
