@@ -78,6 +78,15 @@ class FastTextExtractor(BaseExtractor):
         if char_density < t["native_density_min"]:
             conf -= 0.3
 
+        # Penalize for zero-char pages if there are multiple pages
+        pages_count = len(pages)
+        zero_char_pages = sum(1 for p in pages if len((p.extract_text() or "").strip()) == 0)
+        if pages_count > 0 and (zero_char_pages / pages_count) > 0.1:
+            conf -= 0.2
+
+        if total_chars == 0:
+            conf = 0.0
+
         confidence = max(0.0, min(conf, 1.0))
 
         return ExtractedDocument(

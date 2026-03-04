@@ -86,6 +86,14 @@ class LayoutExtractor(BaseExtractor):
             conf = 0.1
         elif len(text_blocks) < min_blocks and not tables:
             conf = 0.6
+        elif len(tables) > 0 and not text_blocks:
+            # Table-only docs are good, but slightly less confident than mixed
+            conf = 0.85
+
+        # Penalize if many text blocks are very short (likely garbage)
+        short_blocks = sum(1 for b in text_blocks if len(b.text.strip()) < 10)
+        if text_blocks and (short_blocks / len(text_blocks)) > 0.7:
+            conf -= 0.3
 
         confidence = max(0.1, min(conf, 1.0))
 

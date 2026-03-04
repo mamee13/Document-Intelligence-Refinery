@@ -37,6 +37,7 @@ class ExtractionRouter:
             "cost_estimate": extraction.cost_estimate,
             "processing_time": extraction.extraction_time_seconds,
             "timestamp": datetime.now().isoformat(),
+            "escalation_path": extraction.metadata.get("escalation_path", []),
         }
 
         with open(self.ledger_path, "a") as f:
@@ -60,28 +61,40 @@ class ExtractionRouter:
         # 2. Execution with Tier Escalation (A -> B -> C)
         extraction = None
 
+        # Track escalation path
+        strategy_name = strategy.__class__.__name__
+        escalation_path = [strategy_name.replace("Extractor", "")]
+
         # Tier A: Fast (Native Text)
         if strategy == self.fast:
-            extraction = self.fast.extract(pdf_path, profile.doc_id, max_pages=max_pages)
+            kw = {"max_pages": max_pages}
+            extraction = self.fast.extract(pdf_path, profile.doc_id, **kw)
             if extraction.confidence_score < self.escalation_rules["min_conf_a"]:
                 logger.warning(f"Escalating {profile.doc_id} from A to B")
                 strategy = self.layout  # Escalate to B
+                escalation_path.append("Layout")
 
         # Tier B: Layout (Docling / Structured)
         if strategy == self.layout:
-            extraction = self.layout.extract(pdf_path, profile.doc_id, max_pages=max_pages)
+            kw = {"max_pages": max_pages}
+            extraction = self.layout.extract(pdf_path, profile.doc_id, **kw)
             if extraction.confidence_score < self.escalation_rules["min_conf_b"]:
                 logger.warning(f"Escalating {profile.doc_id} from B to C")
                 strategy = self.vision  # Escalate to C
+                escalation_path.append("Vision")
 
         # Tier C: Vision (VLM / API)
         if strategy == self.vision:
-            extraction = self.vision.extract(pdf_path, profile.doc_id, max_pages=max_pages)
+            kw = {"max_pages": max_pages}
+            extraction = self.vision.extract(pdf_path, profile.doc_id, **kw)
 
         # 3. Graceful Degradation / Human Review Check
-        if extraction and extraction.confidence_score < self.escalation_rules["min_conf_c"]:
-            extraction.needs_human_review = True
-            logger.error(f"Extraction for {profile.doc_id} failed all tiers.")
+        if extraction:
+            extraction.metadata["escalation_path"] = escalation_path
+            thresh = self.escalation_rules["min_conf_c"]
+            if extraction.confidence_score < thresh:
+                extraction.needs_human_review = True
+                logger.error(f"Extraction for {profile.doc_id} failed all tiers.")
 
         # Finalize and log
         if extraction:
