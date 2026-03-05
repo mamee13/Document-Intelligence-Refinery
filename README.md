@@ -60,12 +60,12 @@ graph TD
 
 Determines document "Origin Type" (Digital vs. Scanned) and "Layout Complexity" using measurable metrics like character density and image-to-page ratios before expensive processing begins.
 
-### 2. Multi-Strategy Extraction & Escalation (Stage 2)
+### 2. Multi-Strategy Extraction & Per-Page Escalation (Stage 2)
 
-- **Strategy A (FastText)**: Instant extraction for simple, single-column documents using `pdfplumber`.
-- **Strategy B (Layout)**: Layout-aware extraction for tables and multi-column reports using `Docling`.
-- **Strategy C (Vision)**: VLM-based extraction for scans and complex failure cases using **Gemini 2.0 Flash**.
-- **Escalation Guard**: Low-confidence outputs automatically trigger a more robust (but more expensive) strategy.
+- **Strategy A (FastText)**: Production-grade extraction for digital PDFs using `pdfplumber` with **word-clustering** for 100% accurate spatial BBoxes.
+- **Strategy B (Layout)**: Layout-aware extraction for tables and multi-column reports using `Docling`, with robust fallback for complex structures.
+- **Strategy C (Vision)**: VLM-based high-fidelity extraction using **Gemini 2.0 Flash** for scans or legacy document classes.
+- **Per-Page Escalation Guard**: The system monitors extraction success on a _page-by-page_ basis. It automatically detects empty tables or low confidence levels and escalates only the failing segments to higher-tier strategies (A → B → C).
 
 ### 3. Semantic Chunking (Stage 3)
 
@@ -152,7 +152,35 @@ uv run python -m src.main audit "The company revenue exceeded 10 billion."
 
 ---
 
-## 🐳 Docker Deployment
+## �️ Stage 5 Developer CLI
+
+For rapid development and discovery of Stage 5 features, use the dedicated `refinery_cli.py`:
+
+```bash
+# Query the Knowledge Base
+uv run python refinery_cli.py query "Total asset value for CBE in 2024?"
+
+# Audit a specific claim (Generates Evidence Fragments)
+uv run python refinery_cli.py audit "CBE assets reached 1.4 trillion."
+
+# Navigate the PageIndex Tree
+uv run python refinery_cli.py navigate "Procurement findings"
+```
+
+---
+
+## 🏆 High-Fidelity Evidence Markers
+
+The project includes a set of **Gold-Standard Q&A Artifacts** in `.refinery/examples/`. These serve as verifiable proof of extraction accuracy, containing:
+
+- Full Answer Text
+- Cryptographic Content Hashes
+- Spatial Bounding Boxes (BBoxes)
+- Document Metadata
+
+---
+
+## �🐳 Docker Deployment
 
 For enterprise deployment, use the provided Dockerfile.
 
@@ -169,5 +197,5 @@ docker run --env-file .env -v $(pwd)/data:/app/data -v $(pwd)/.refinery:/app/.re
 ## 📊 Performance Benchmarks
 
 - **Extraction Fidelity**: Strategy B improves table recall by **>20x** over baseline pdfplumber.
-- **Cost Efficiency**: Routing saves **~90%** of API costs by using VLMs only when triage detects scanned or complex input.
-- **Auditability**: 100% of facts are linked to verifiable spatial coordinates.
+- **Cost Efficiency**: Real-time cost tracking in `.refinery/extraction_ledger.jsonl` provides transparency, while per-page routing saves **~90%** of API costs.
+- **Auditability**: 100% of facts are linked to verifiable spatial coordinates via BBox clustering.

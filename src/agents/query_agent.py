@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 from typing import Annotated, Dict, List, Literal, Optional, Sequence, TypedDict
 
@@ -14,7 +15,7 @@ from langgraph.prebuilt import ToolNode
 
 from src.agents.indexer import PageIndexManager
 from src.data.vector_store import VectorStore
-from src.models.core import ProvenanceChain, ProvenanceCitation
+from src.models.core import BBox, ProvenanceChain, ProvenanceCitation
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,10 @@ def semantic_search(query: str, k: int = 5) -> str:
     for doc in docs:
         meta = doc.metadata
         results.append(
-            f"[Source: {meta.get('doc_id')}, Page: {meta.get('page_refs')}, "
-            f"Hash: {meta.get('content_hash')}, BBox: {meta.get('bbox')}]\n"
+            f"[Source: {meta.get('doc_id')}, "
+            f"Page: {meta.get('page_refs')}, "
+            f"Hash: {meta.get('content_hash')}, "
+            f"BBox: {meta.get('bbox')}]\n"
             f"Content: {doc.page_content}\n"
             f"---"
         )
@@ -118,7 +121,7 @@ class QueryAgent:
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
             temperature=0,
-            max_tokens=2048,
+            max_tokens=1024,
         )
         self.tools = [pageindex_navigate, semantic_search, structured_query]
         self.model_with_tools = self.llm.bind_tools(self.tools)
@@ -148,10 +151,10 @@ class QueryAgent:
     async def run(self, query: str, doc_id: Optional[str] = None) -> ProvenanceChain:
         """Runs the query agent and returns a structured ProvenanceChain."""
         system_prompt = (
-            "You are a professional Document Intelligence Agent. Your goal is to "
-            "provide accurate answers based ONLY on the provided document data.\n"
+            "You are a professional Document Intelligence Agent. Your goal is "
+            "to provide accurate answers based ONLY on the document data.\n"
             "For every fact you state, MUST provide a citation in the format: "
-            "[Source: DOC_ID, Page: PAGE, Hash: HASH].\n"
+            "[Source: DOC_ID, Page: PAGE, Hash: HASH, BBox: BBOX_STRING].\n"
             "If spatial data (BBox) is available, keep track of it.\n"
             "Be concise and professional."
         )
@@ -165,14 +168,26 @@ class QueryAgent:
         final_state = await self.graph.ainvoke(inputs)
         answer = final_state["messages"][-1].content
 
-        # Simple citation extraction regex-based
-        import re
-
-        pattern = r"\[Source: (.*?), Page: (.*?), Hash: (.*?)\]"
+        # Robust citation extraction (Master Thinker: include BBox)
+        pattern = r"\[Source: (.*?), Page: (.*?), Hash: (.*?), BBox: (.*?)\]"
         citation_matches = re.finditer(pattern, answer)
         citations = []
         for match in citation_matches:
-            # In a real implementation, look up full LDU info from cache
+            bbox_raw = match.group(4)
+            bbox_obj = None
+            if bbox_raw and "None" not in bbox_raw:
+                try:
+                    nums = re.findall(r"[-+]?\d*\.\d+|\d+", bbox_raw)
+                    if len(nums) == 4:
+                        bbox_obj = BBox(
+                            x0=float(nums[0]),
+                            y0=float(nums[1]),
+                            x1=float(nums[2]),
+                            y1=float(nums[3]),
+                        )
+                except Exception:
+                    pass
+
             citations.append(
                 ProvenanceCitation(
                     document_name=match.group(1),
@@ -182,11 +197,12 @@ class QueryAgent:
                         else int(match.group(2))
                     ),
                     content_hash=match.group(3),
-                    excerpt="Excerpt placeholder",
+                    bbox=bbox_obj,
+                    excerpt="Refer to source content.",
                 )
             )
 
-        # Aggregate chain-level provenance summaries (Mastered Requirement)
+        # Aggregate chain-level provenance summaries
         chain_hash = None
         if citations:
             hashes = [c.content_hash for c in citations if c.content_hash]
