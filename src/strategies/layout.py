@@ -56,10 +56,10 @@ class LayoutExtractor(BaseExtractor):
                 if hasattr(loc, "bbox") and loc.bbox:
                     # Docling 2.x bbox has l, t, r, b (normalized/points)
                     bbox = BBox(
-                        x0=float(loc.bbox.l),
-                        y0=float(loc.bbox.t),
-                        x1=float(loc.bbox.r),
-                        y1=float(loc.bbox.b),
+                        x0=min(float(loc.bbox.l), float(loc.bbox.r)),
+                        y0=min(float(loc.bbox.t), float(loc.bbox.b)),
+                        x1=max(float(loc.bbox.l), float(loc.bbox.r)),
+                        y1=max(float(loc.bbox.t), float(loc.bbox.b)),
                     )
 
             if max_pages and page_no > max_pages:

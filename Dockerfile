@@ -37,4 +37,4 @@ RUN mkdir -p .refinery/profiles .refinery/extracted .refinery/pageindex .refiner
 
 # Using src/main.py as the entry point for the CLI refinery
 ENTRYPOINT ["python", "-m", "src.main"]
-CMD ["--help"]
+CMD ["extract"]

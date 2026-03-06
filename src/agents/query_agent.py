@@ -70,11 +70,16 @@ def semantic_search(query: str, k: int = 5) -> str:
     results = []
     for doc in docs:
         meta = doc.metadata
+        bbox_data = meta.get("bbox")
+        bbox_str = "None"
+        if bbox_data and isinstance(bbox_data, dict):
+            bbox_str = f"[{bbox_data.get('x0', 0):.1f}, {bbox_data.get('y0', 0):.1f}, {bbox_data.get('x1', 0):.1f}, {bbox_data.get('y1', 0):.1f}]"
+
         results.append(
             f"[Source: {meta.get('doc_id')}, "
             f"Page: {meta.get('page_refs')}, "
             f"Hash: {meta.get('content_hash')}, "
-            f"BBox: {meta.get('bbox')}]\n"
+            f"BBox: {bbox_str}]\n"
             f"Content: {doc.page_content}\n"
             f"---"
         )
@@ -175,27 +180,33 @@ class QueryAgent:
         for match in citation_matches:
             bbox_raw = match.group(4)
             bbox_obj = None
-            if bbox_raw and "None" not in bbox_raw:
+            if bbox_raw and "None" not in bbox_raw and "[" in bbox_raw:
                 try:
                     nums = re.findall(r"[-+]?\d*\.\d+|\d+", bbox_raw)
-                    if len(nums) == 4:
+                    if len(nums) >= 4:
                         bbox_obj = BBox(
                             x0=float(nums[0]),
                             y0=float(nums[1]),
                             x1=float(nums[2]),
                             y1=float(nums[3]),
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to parse bbox: {e}")
+
+            # Extract page number properly
+            page_str = match.group(2)
+            try:
+                if "[" in page_str:
+                    page_num = int(eval(page_str)[0])
+                else:
+                    page_num = int(page_str)
+            except Exception:
+                page_num = 1
 
             citations.append(
                 ProvenanceCitation(
                     document_name=match.group(1),
-                    page_number=(
-                        int(eval(match.group(2))[0])
-                        if "[" in match.group(2)
-                        else int(match.group(2))
-                    ),
+                    page_number=page_num,
                     content_hash=match.group(3),
                     bbox=bbox_obj,
                     excerpt="Refer to source content.",
