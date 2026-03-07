@@ -32,7 +32,6 @@ class LayoutExtractor(BaseExtractor):
     ) -> ExtractedDocument:
         start_time = time.time()
 
-        # Docling 2.x convert call - using page_range if max_pages is set
         try:
             if max_pages:
                 result = self.converter.convert(pdf_path, page_range=(1, max_pages))
@@ -43,7 +42,6 @@ class LayoutExtractor(BaseExtractor):
             raise e
 
         doc = result.document
-
         text_blocks: List[ExtractedText] = []
         tables: List[ExtractedTable] = []
 
@@ -56,23 +54,28 @@ class LayoutExtractor(BaseExtractor):
                 loc = item.prov[0]
                 page_no = loc.page_no
                 if hasattr(loc, "bbox") and loc.bbox:
-                    # Docling 2.x bbox has l, t, r, b
-                    # Mapping to our x0, y0, x1, y1
+                    # Docling 2.x bbox has l, t, r, b (normalized/points)
                     bbox = BBox(
-                        x0=float(loc.bbox.l),
-                        y0=float(loc.bbox.t),
-                        x1=float(loc.bbox.r),
-                        y1=float(loc.bbox.b),
+                        x0=min(float(loc.bbox.l), float(loc.bbox.r)),
+                        y0=min(float(loc.bbox.t), float(loc.bbox.b)),
+                        x1=max(float(loc.bbox.l), float(loc.bbox.r)),
+                        y1=max(float(loc.bbox.t), float(loc.bbox.b)),
                     )
 
-            # If max_pages is set, we bypass items from later pages
             if max_pages and page_no > max_pages:
                 continue
 
             if isinstance(item, TableItem):
                 md_table = item.export_to_markdown(doc=doc)
+                # Master Thinker: monitor table success
+                is_empty = len(item.data.table_cells) == 0
                 tables.append(
-                    ExtractedTable(markdown_grid=md_table, page_number=page_no, bbox=bbox)
+                    ExtractedTable(
+                        markdown_grid=md_table,
+                        page_number=page_no,
+                        bbox=bbox,
+                        caption=f"EmptyTable:{is_empty}" if is_empty else None,
+                    )
                 )
             elif isinstance(item, TextItem):
                 text_blocks.append(ExtractedText(text=item.text, page_number=page_no, bbox=bbox))
@@ -87,13 +90,12 @@ class LayoutExtractor(BaseExtractor):
         elif len(text_blocks) < min_blocks and not tables:
             conf = 0.6
         elif len(tables) > 0 and not text_blocks:
-            # Table-only docs are good, but slightly less confident than mixed
             conf = 0.85
 
-        # Penalize if many text blocks are very short (likely garbage)
-        short_blocks = sum(1 for b in text_blocks if len(b.text.strip()) < 10)
-        if text_blocks and (short_blocks / len(text_blocks)) > 0.7:
-            conf -= 0.3
+        # Penalize if many bboxes are missing (facade check)
+        missing_bbox = sum(1 for b in text_blocks if b.bbox is None)
+        if text_blocks and (missing_bbox / len(text_blocks)) > 0.5:
+            conf -= 0.2
 
         confidence = max(0.1, min(conf, 1.0))
 

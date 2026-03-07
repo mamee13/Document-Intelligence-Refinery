@@ -3,9 +3,6 @@
 
 # Application storage & artifacts
 .refinery/
-!.refinery/profiles/
-*.db
-*.sqlite3
 
 # Python overrides
 __pycache__/
@@ -32,3 +29,7 @@ htmlcov/
 # OS specific
 .DS_Store
 Thumbs.db
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore

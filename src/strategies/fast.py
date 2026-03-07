@@ -30,14 +30,16 @@ class FastTextExtractor(BaseExtractor):
             total_image_area = 0.0
             font_types = set()
 
+            # 1. Extract words with their bboxes
             for i, page in enumerate(pages):
-                page_text = page.extract_text() or ""
-                char_count = len(page_text.strip())
-                total_chars += char_count
+                words = page.extract_words()
+                width = float(page.width or 1)
+                height = float(page.height or 1)
+                total_area += width * height
 
-                width = page.width or 1
-                height = page.height or 1
-                total_area += float(width * height)
+                # Track stats for confidence
+                page_text = page.extract_text() or ""
+                total_chars += len(page_text.strip())
 
                 img_area = 0.0
                 for img in page.images:
@@ -47,13 +49,57 @@ class FastTextExtractor(BaseExtractor):
                 for char in page.chars:
                     font_types.add(char.get("fontname", "unknown"))
 
-                text_blocks.append(
-                    ExtractedText(
-                        text=page_text,
-                        page_number=i + 1,
-                        bbox=BBox(x0=0, y0=0, x1=float(width), y1=float(height)),
+                # 2. Simple Line Clustering for BBoxes
+                # Group words into blocks (lines) to avoid 1 block per word
+                if not words:
+                    text_blocks.append(ExtractedText(text=page_text, page_number=i + 1, bbox=None))
+                    continue
+
+                # Sort words by top position
+                words.sort(key=lambda w: (w["top"], w["x0"]))
+
+                current_block_words = []
+                last_bottom = None
+
+                for word in words:
+                    # Threshold for starting a new block: vertical gap > 5 pts
+                    if last_bottom is not None and (word["top"] - last_bottom) > 5:
+                        # Flush current block
+                        block_text = " ".join([w["text"] for w in current_block_words])
+                        bx0 = min(w["x0"] for w in current_block_words)
+                        by0 = min(w["top"] for w in current_block_words)
+                        bx1 = max(w["x1"] for w in current_block_words)
+                        by1 = max(w["bottom"] for w in current_block_words)
+
+                        bbox = BBox(x0=float(bx0), y0=float(by0), x1=float(bx1), y1=float(by1))
+                        text_blocks.append(
+                            ExtractedText(text=block_text, page_number=i + 1, bbox=bbox)
+                        )
+                        current_block_words = []
+
+                    current_block_words.append(word)
+                    last_bottom = word["bottom"]
+
+                # Flush remaining
+                if current_block_words:
+                    block_text = " ".join([w["text"] for w in current_block_words])
+                    bx0 = min(w["x0"] for w in current_block_words)
+                    by0 = min(w["top"] for w in current_block_words)
+                    bx1 = max(w["x1"] for w in current_block_words)
+                    by1 = max(w["bottom"] for w in current_block_words)
+                    bbox = BBox(
+                        x0=float(bx0),
+                        y0=float(by0),
+                        x1=float(bx1),
+                        y1=float(by1),
                     )
-                )
+                    text_blocks.append(
+                        ExtractedText(
+                            text=block_text,
+                            page_number=i + 1,
+                            bbox=bbox,
+                        )
+                    )
 
         # Confidence Calculation (Mastered Requirement)
         char_density = total_chars / total_area if total_area > 0 else 0
@@ -61,7 +107,8 @@ class FastTextExtractor(BaseExtractor):
 
         # Heuristic:
         # 1. Native digital usually has >2 fonts and <30% image area
-        # 2. Scanned (Strategy A failure) usually has 0 fonts (or OCR fonts) and >50% image area
+        # 2. Scanned (Strategy A failure) usually has 0 fonts (or OCR fonts)
+        #    and >50% image area
         conf = 1.0
 
         # Penalize for high image area

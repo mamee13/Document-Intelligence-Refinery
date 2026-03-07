@@ -128,7 +128,12 @@ class VisionExtractor(BaseExtractor):
                                 ExtractedText(
                                     text=content,
                                     page_number=i + 1,
-                                    bbox=BBox(x0=b[1], y0=b[0], x1=b[3], y1=b[2]),
+                                    bbox=BBox(
+                                        x0=min(float(b[1]), float(b[3])),
+                                        y0=min(float(b[0]), float(b[2])),
+                                        x1=max(float(b[1]), float(b[3])),
+                                        y1=max(float(b[0]), float(b[2])),
+                                    ),
                                 )
                             )
                     else:
