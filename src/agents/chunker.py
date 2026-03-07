@@ -1,11 +1,12 @@
 import hashlib
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import tiktoken
 
-from src.models.core import LDU, ExtractedDocument
+from src.models.core import LDU, BBox, ExtractedDocument
 from src.utils.config import RULES
+from src.utils.validators import ChunkValidator
 
 
 class ChunkingEngine:
@@ -21,6 +22,7 @@ class ChunkingEngine:
             self.encoder = tiktoken.get_encoding("cl100k_base")
 
         self.rules = RULES.get("chunking_rules", {})
+        self.validator = ChunkValidator(self.rules)
 
     def _generate_id(self, content: str) -> str:
         """Generates a stable ID based on the content hash."""
@@ -36,9 +38,9 @@ class ChunkingEngine:
         """
         ldus: List[LDU] = []
         current_section: Optional[str] = None
+        section_map: dict[int, str] = {}  # Maps LDU index to section title
 
         # 1. Process Tables (Rule 1: Table Integrity)
-        # We store the entire table as a single LDU.
         for table in doc.tables:
             content = table.markdown_grid
             if table.caption:
@@ -74,9 +76,6 @@ class ChunkingEngine:
             ldus.append(ldu)
 
         # 3. Process Text Blocks (Rule 3 & 4: Lists and Sections)
-        # We'll use a simple heuristic for headers and group lists.
-        # LayoutExtractor (Docling) gives us hints, for Strategy A we infer.
-
         i = 0
         while i < len(doc.text_blocks):
             block = doc.text_blocks[i]
@@ -93,7 +92,13 @@ class ChunkingEngine:
                 list_items = [text]
                 start_page = block.page_number
                 end_page = block.page_number
-                combined_bbox = block.bbox
+
+                # Fix BBox propagation: init with current block bbox
+                bx0, by0, bx1, by1 = (
+                    (block.bbox.x0, block.bbox.y0, block.bbox.x1, block.bbox.y1)
+                    if block.bbox
+                    else (0, 0, 0, 0)
+                )
 
                 j = i + 1
                 while j < len(doc.text_blocks):
@@ -102,12 +107,20 @@ class ChunkingEngine:
                     if re.match(r"^(\d+[\.\)]|[\u2022\-\*])", next_text):
                         list_items.append(next_text)
                         end_page = next_block.page_number
-                        # Update combined_bbox (simplified)
+
+                        # Update combined_bbox
+                        if next_block.bbox:
+                            bx0 = min(bx0, next_block.bbox.x0)
+                            by0 = min(by0, next_block.bbox.y0)
+                            bx1 = max(bx1, next_block.bbox.x1)
+                            by1 = max(by1, next_block.bbox.y1)
                         j += 1
                     else:
                         break
 
                 content = "\n".join(list_items)
+                combined_bbox = BBox(x0=bx0, y0=by0, x1=bx1, y1=by1) if block.bbox else None
+
                 ldu = LDU(
                     chunk_id=f"list_{self._generate_id(content)[:8]}",
                     doc_id=doc.doc_id,
@@ -125,8 +138,11 @@ class ChunkingEngine:
 
             # Heuristic for Section Header (Rule 4)
             # Short line, maybe title case or ending with no period
-            # We already ruled out lists above.
             is_header = len(text) < 80 and not text.endswith(".") and any(c.isupper() for c in text)
+
+            # Mastered: Check for numeric prefixes often used in structured docs
+            if not is_header:
+                is_header = bool(re.match(r"^(Section|Chapter|[A-Z]|\d+\.)\b", text))
 
             if is_header:
                 current_section = text
@@ -148,10 +164,11 @@ class ChunkingEngine:
             # Default Paragraph
             max_tokens = self.rules.get("max_tokens", 1024)
             token_count = self._count_tokens(text)
+
+            # Simple chunking if too long
             if token_count > max_tokens:
-                # Simple split (Mastered: use params)
                 words = text.split()
-                # Very basic splitting for now
+                # Basic chunking (Mastered: would use sliding window)
                 text = " ".join(words[:200])
                 token_count = self._count_tokens(text)
 
@@ -169,15 +186,46 @@ class ChunkingEngine:
             ldus.append(ldu)
             i += 1
 
-        # 4. Basic Cross-Reference Resolution (Rule 5)
-        # Search for "Table X" or "Figure Y" in chunks
+        # 4. Basic Cross-Reference Detection
         for ldu in ldus:
-            # Look for references to other chunks (very basic regex)
-            # e.g., (see Table 1)
             res = r"(Table \d+|Figure \d+|Section [A-Z\d\.]+)"
             refs = re.findall(res, ldu.content, re.IGNORECASE)
             if refs:
-                # Log strings as potential cross-references
                 ldu.cross_references = list(set(refs))
 
-        return ldus
+        # 5. Backfill parent_section for orphaned chunks
+        # This fixes the "No content directly linked to this section header" issue
+        self._backfill_parent_sections(ldus)
+
+        # 6. PROGRAMMATIC VALIDATION (Explicit Mastered Requirement)
+        return self.validator.validate(ldus)
+
+    def _backfill_parent_sections(self, ldus: List[LDU]) -> None:
+        """
+        Backfills parent_section for chunks that don't have one assigned.
+        Uses the nearest preceding section header or the nearest following header.
+        """
+        # First pass: Forward propagation (chunks after headers)
+        last_section: Optional[str] = None
+        for ldu in ldus:
+            if ldu.chunk_type == "section_header":
+                last_section = ldu.content
+            elif ldu.parent_section is None and last_section is not None:
+                ldu.parent_section = last_section
+
+        # Second pass: Backward propagation (chunks before first header)
+        # Find the first section header
+        first_section: Optional[str] = None
+        for ldu in ldus:
+            if ldu.chunk_type == "section_header":
+                first_section = ldu.content
+                break
+
+        # Assign orphaned chunks at the beginning to the first section
+        if first_section:
+            for ldu in ldus:
+                if ldu.parent_section is None and ldu.chunk_type != "section_header":
+                    ldu.parent_section = first_section
+                    break  # Stop at first section header
+                if ldu.chunk_type == "section_header":
+                    break

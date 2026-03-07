@@ -85,3 +85,21 @@ class VectorStore:
                 return []
 
         return cast(List[Document], self.vector_db.similarity_search(query, k=k))
+
+    def get_by_hash(self, content_hash: str) -> Optional[Document]:
+        """Retrieves a document by its content hash metadata."""
+        if self.vector_db is None:
+            try:
+                self.vector_db = FAISS.load_local(
+                    self.persist_dir, self.embeddings, allow_dangerous_deserialization=True
+                )
+            except Exception:
+                return None
+
+        # FAISS search with filter
+        results = self.vector_db.similarity_search(
+            query="",  # Empty query for filter-only search
+            k=1,
+            filter={"content_hash": content_hash},
+        )
+        return results[0] if results else None

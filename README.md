@@ -169,6 +169,23 @@ uv run python refinery_cli.py navigate "Procurement findings"
 
 ---
 
+## 🔧 Utility Scripts
+
+The `scripts/` folder contains helpful utilities for validation and testing:
+
+```bash
+# Verify extraction quality (precision, recall, coverage)
+python3 scripts/verify_extraction_quality.py
+
+# Generate Q&A examples with provenance
+python3 scripts/generate_examples.py
+
+# Create master Q&A dataset
+python3 scripts/generate_master_qa.py
+```
+
+---
+
 ## 🏆 High-Fidelity Evidence Markers
 
 The project includes a set of **Gold-Standard Q&A Artifacts** in `.refinery/examples/`. These serve as verifiable proof of extraction accuracy, containing:

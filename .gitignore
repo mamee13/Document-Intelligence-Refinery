@@ -3,9 +3,6 @@
 
 # Application storage & artifacts
 .refinery/
-!.refinery/profiles/
-*.db
-*.sqlite3
 
 # Python overrides
 __pycache__/

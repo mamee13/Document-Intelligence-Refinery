@@ -1,4 +1,3 @@
-import hashlib
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 class SemanticRefinery:
     """
     Orchestrates the full multi-tier semantic refining process.
-    PDF -> Profile -> Extraction -> Chunks (LDUs) -> Index -> Vector Store + Fact Table.
+    PDF -> Profile -> Extraction -> Chunks -> Index -> Store.
     """
 
     def __init__(self) -> None:
@@ -38,13 +37,20 @@ class SemanticRefinery:
 
         # 1. Triage
         profile = self.triage.classify_document(pdf_path)
-        logger.info(f"Triage complete: {profile.origin_type}, {profile.layout_complexity}")
+        logger.info(f"Triage complete: {profile.origin_type}, " f"{profile.layout_complexity}")
 
         # 2. Extract
         extraction: ExtractedDocument = self.router.route_and_extract(
             pdf_path, profile, max_pages=max_pages
         )
         logger.info(f"Extraction complete using {extraction.strategy_used}")
+
+        # Persist raw extraction for submission compliance
+        extracted_dir = Path(".refinery/extracted")
+        extracted_dir.mkdir(parents=True, exist_ok=True)
+        with open(extracted_dir / f"{doc_id}.json", "w") as f:
+            f.write(extraction.model_dump_json(indent=2))
+        logger.info(f"Raw extraction persisted to {extracted_dir}/{doc_id}.json")
 
         # 3. Chunk
         ldus: List[LDU] = self.chunker.chunk(extraction)
@@ -65,6 +71,8 @@ class SemanticRefinery:
                 self.fact_table.insert_fact(fact)
 
         if extraction.tables:
-            logger.info(f"Structured fact extraction attempted for {len(extraction.tables)} tables")
+            logger.info(
+                f"Structured fact extraction attempted for " f"{len(extraction.tables)} tables"
+            )
 
         return index
